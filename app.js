@@ -8,6 +8,7 @@ const CATS = {
   read:    { n: 'Чтение',      c: '#7aa2f7' },
   workout: { n: 'Тренировка',  c: '#ef7d9a' },
   walk:    { n: 'Ходьба',      c: '#5cc9d9' },
+  lesson:  { n: 'Урок вьетнамского', c: '#e0884e' },
   work:    { n: 'Работа',      c: '#a594f9' },
   other:   { n: 'Другое',      c: '#8a979f' }
 };
@@ -31,7 +32,7 @@ const defaults = () => ({
   ],
   settings: {
     dailyGoal: 60,
-    targets: { rop: 120, vi: 60, read: 60, workout: 4, walk: 2 },
+    targets: { rop: 120, vi: 90, read: 60, workout: 4, walk: 2 },
     workoutDays: [0, 1, 3, 4],
     walkDays: [2, 5],
     lessons: { 2: '17:00–18:00', 6: '19:00–20:00' },
@@ -39,6 +40,8 @@ const defaults = () => ({
     ropDays: [0, 1, 2, 3, 4],
     ropTime: '12:00',
     ropMin: 30,
+    viDays: [0, 1, 2, 3, 4, 5, 6],
+    viMin: 15,
     workWindow: '17:00–00:00',
     pomo: { work: 25, brk: 5 },
     adaptDismissed: '',
@@ -96,9 +99,9 @@ function sumBy(list) {
   for (const s of list) o[s.cat] = (o[s.cat] || 0) + s.minutes;
   return o;
 }
-function minutesByDate() {
+function minutesByDate(cat) {
   const m = {};
-  for (const s of S.sessions) m[s.date] = (m[s.date] || 0) + s.minutes;
+  for (const s of S.sessions) if (!cat || s.cat === cat) m[s.date] = (m[s.date] || 0) + s.minutes;
   return m;
 }
 function weekData(off = 0) {
@@ -111,8 +114,8 @@ function weekData(off = 0) {
 }
 
 /* серия дней: один «день отдыха» за 7 дней не рвёт серию */
-function streak() {
-  const m = minutesByDate();
+function streak(cat) {
+  const m = minutesByDate(cat);
   const dates = Object.keys(m);
   if (!dates.length) return 0;
   const first = dates.sort()[0];
@@ -195,17 +198,18 @@ function vToday() {
   const todaySess = S.sessions.filter(s => s.date === t);
   const done = ev => todaySess.some(s => s.ev === ev);
   const evs = [];
-  if (st.ropDays.includes(di)) evs.push({ k: 'rop', t: 'Курс РОП', s: `${st.ropTime} · ${st.ropMin} мин, фокус`, c: '#3fb68b', start: true, done: todaySess.some(x => x.cat === 'rop') });
+  if (st.ropDays.includes(di)) evs.push({ k: 'rop', t: 'Курс РОП', s: `${st.ropTime} · ${st.ropMin} мин, фокус`, c: '#3fb68b', start: true, cat: 'rop', min: st.ropMin, done: todaySess.some(x => x.cat === 'rop') });
+  if (st.viDays.includes(di)) { const vs = streak('vi'); evs.push({ k: 'vi', t: 'Вьетнамский — сам', s: `${st.viMin} мин, вслух и по памяти${vs ? ` · ${vs} ${plural(vs, 'день', 'дня', 'дней')} подряд` : ''}`, c: '#f7b955', start: true, cat: 'vi', min: st.viMin, alt: 5, done: todaySess.some(x => x.cat === 'vi') }); }
   if (st.workoutDays.includes(di)) evs.push({ k: 'workout', t: 'Тренировка', s: st.workoutTime, c: '#ef7d9a', opts: [45, 60, 75, 90] });
   if (st.walkDays.includes(di)) evs.push({ k: 'walk', t: 'Ходьба', s: '≈ 60 минут', c: '#5cc9d9', opts: [45, 60, 75, 90, 120] });
-  if (st.lessons[di]) evs.push({ k: 'lesson', t: 'Урок вьетнамского', s: st.lessons[di], c: '#f7b955', opts: [45, 60, 90] });
+  if (st.lessons[di]) evs.push({ k: 'lesson', t: 'Урок вьетнамского (офлайн)', s: st.lessons[di], c: '#e0884e', opts: [45, 60, 90] });
 
   const todos = S.todos.filter(x => x.date === t || (!x.done && x.date < t));
   const w = weekData(0), tg = st.targets;
   const bars = [
-    ['rop', w.by.rop || 0, tg.rop, 'мин'], ['vi', w.by.vi || 0, tg.vi, 'мин'], ['read', w.by.read || 0, tg.read, 'мин'],
+    ['rop', w.by.rop || 0, tg.rop, 'мин'], ['vi', w.by.vi || 0, tg.vi, 'мин', `${new Set(w.list.filter(x => x.cat === 'vi').map(x => x.date)).size} дн из 7`], ['read', w.by.read || 0, tg.read, 'мин'],
     ['workout', w.workouts, tg.workout, 'дн'], ['walk', w.walks, tg.walk, 'дн']
-  ].map(([c, v, g, u]) => `<div style="margin-bottom:12px"><div class="row sp"><span>${catName(c)}</span><span class="muted">${v} / ${g} ${u}</span></div>
+  ].map(([c, v, g, u, x]) => `<div style="margin-bottom:12px"><div class="row sp"><span>${catName(c)}</span><span class="muted">${v} / ${g} ${u}${x ? ' · ' + x : ''}</span></div>
     <div class="bar"><i style="width:${Math.min(100, g ? v / g * 100 : 0)}%;background:${catColor(c)}"></i></div></div>`).join('');
 
   return `<div class="row sp"><div><div style="font-size:20px;font-weight:600;text-transform:capitalize">${DAYN[di]}</div>
@@ -218,7 +222,7 @@ function vToday() {
         <div class="btns"><button class="btn pri sm" data-act="nav" data-v="focus">▶ Фокус</button><button class="btn sm" data-act="quickLog">+ Записать</button></div></div></div>
     <h2>События сегодня</h2>
     ${evs.map(e => e.start ? `<div class="card ev ${e.done ? 'done' : ''}" style="border-left-color:${e.c}"><div class="grow"><div class="t">${e.t}</div><div class="muted">${e.s}</div></div>
-      ${e.done ? '<span class="check on" style="display:grid;place-items:center">✓</span>' : '<button class="btn pri sm" data-act="ropStart">▶ Начать</button>'}</div>`
+      ${e.done ? '<span class="check on" style="display:grid;place-items:center">✓</span>' : `<button class="btn pri sm" data-act="focusStart" data-c="${e.cat}" data-m="${e.min}">▶ ${e.min}</button>${e.alt ? `<button class="btn sm" data-act="focusStart" data-c="${e.cat}" data-m="${e.alt}">${e.alt}</button>` : ''}`}</div>`
       : `<div class="card ev ${done(e.k) ? 'done' : ''}" style="border-left-color:${e.c}"><div class="grow"><div class="t">${e.t}</div><div class="muted">${e.s}</div></div>
       <button class="check ${done(e.k) ? 'on' : ''}" data-act="evLog" data-k="${e.k}" aria-label="Отметить">${done(e.k) ? '✓' : ''}</button></div>`).join('')}
     <div class="card ev" style="border-left-color:#8a979f"><div class="grow"><div class="t">Рабочее окно</div><div class="muted">${esc(st.workWindow)}</div></div></div>
@@ -359,6 +363,9 @@ function vSettings() {
       <label class="l">Курс РОП (дни)</label>
       <div class="days">${DAYS.map((d, i) => `<button class="chip ${st.ropDays.includes(i) ? 'on' : ''}" data-act="dayTog" data-k="ropDays" data-i="${i}">${d}</button>`).join('')}</div>
       <div class="row"><div class="grow"><label class="l">Время РОП</label><input type="text" value="${esc(st.ropTime)}" data-set="ropTime"></div><div class="grow"><label class="l">Минут</label><input type="number" min="5" max="180" value="${st.ropMin}" data-set="ropMin"></div></div>
+      <label class="l">Вьетнамский самостоятельно (дни)</label>
+      <div class="days">${DAYS.map((d, i) => `<button class="chip ${st.viDays.includes(i) ? 'on' : ''}" data-act="dayTog" data-k="viDays" data-i="${i}">${d}</button>`).join('')}</div>
+      <label class="l">Минут в день (мин. версия — 5)</label><input type="number" min="5" max="60" value="${st.viMin}" data-set="viMin">
       <label class="l">Время тренировки</label><input type="text" value="${esc(st.workoutTime)}" data-set="workoutTime">
       <label class="l">Рабочее окно</label><input type="text" value="${esc(st.workWindow)}" data-set="workWindow">
       <label class="l">Уроки вьетнамского (пусто = нет урока)</label>
@@ -460,10 +467,10 @@ const A = {
   evLog: d => {
     const t = todayS(), ex = S.sessions.find(s => s.date === t && s.ev === d.k);
     if (ex) { S.sessions = S.sessions.filter(s => s !== ex); saveNow(); return render(); }
-    const map = { workout: ['workout', 'Сколько длилась тренировка?', [45, 60, 75, 90]], walk: ['walk', 'Сколько гуляли?', [45, 60, 75, 90, 120]], lesson: ['vi', 'Сколько длился урок?', [45, 60, 90]] }[d.k];
+    const map = { workout: ['workout', 'Сколько длилась тренировка?', [45, 60, 75, 90]], walk: ['walk', 'Сколько гуляли?', [45, 60, 75, 90, 120]], lesson: ['lesson', 'Сколько длился урок?', [45, 60, 90]] }[d.k];
     askMinutes({ title: map[1], opts: map[2], cb: m => { if (m > 0) { logSession({ cat: map[0], minutes: m, ev: d.k }); render(); } } });
   },
-  ropStart: () => { ui.cat = 'rop'; S.settings.pomo = { work: S.settings.ropMin, brk: S.settings.pomo.brk }; saveNow(); ui.view = 'focus'; timerStart(S.settings.ropMin, 'work'); },
+  focusStart: d => { ui.cat = d.c; ui.view = 'focus'; timerStart(+d.m, 'work'); },
   quickLog: d => {
     const date = d.d || todayS(); ui.qc = 'rop';
     openSheet(`<h3>Записать время${date !== todayS() ? ' · ' + date.split('-').reverse().join('.') : ''}</h3>${catChips(ui.qc, 'qcCat')}
@@ -588,6 +595,7 @@ document.addEventListener('change', e => {
   else if (k === 'syncToken') st.sync.token = el.value.trim();
   else if (k === 'syncRepo') st.sync.repo = el.value.trim();
   else if (k === 'syncBranch') st.sync.branch = el.value.trim() || 'data';
+  else if (k === 'viMin') { if (n > 0) st.viMin = n; }
   else if (k === 'ropMin') { if (n > 0) st.ropMin = n; }
   else if (k === 'workoutTime' || k === 'workWindow' || k === 'ropTime') st[k] = el.value.trim();
   else if (k === 'lesson') { const v = el.value.trim(); if (v) st.lessons[el.dataset.i] = v; else delete st.lessons[el.dataset.i]; }
