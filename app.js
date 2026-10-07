@@ -22,7 +22,6 @@ const defaults = () => ({
   sessions: [],
   todos: [],
   reviews: {},
-  fired: {},
   timer: null,
   templates: [
     { t: 'Повторить слова', cat: 'vi' },
@@ -39,8 +38,8 @@ const defaults = () => ({
     workoutTime: '≈ 09:30',
     workWindow: '17:00–00:00',
     pomo: { work: 25, brk: 5 },
-    notify: false,
-    adaptDismissed: ''
+    adaptDismissed: '',
+    sync: { on: false, token: '', repo: 'godoffear/life_work_balance', branch: 'data', path: 'data/time-app.json', last: '', status: '' }
   }
 });
 
@@ -341,7 +340,7 @@ function vReview() {
 }
 
 function vSettings() {
-  const st = S.settings, tg = st.targets;
+  const st = S.settings, tg = st.targets, sy = st.sync;
   const num = (id, v, mx) => `<input type="number" min="0" max="${mx}" value="${v}" data-set="${id}">`;
   return `<h2 style="margin-top:0">Цели на неделю</h2><div class="card">
       <div class="row"><div class="grow"><label class="l" style="margin-top:0">РОП, мин</label>${num('t_rop', tg.rop, 600)}</div><div class="grow"><label class="l" style="margin-top:0">Вьетнамский, мин</label>${num('t_vi', tg.vi, 600)}</div></div>
@@ -358,8 +357,14 @@ function vSettings() {
     <h2>Мои шаблоны дел</h2><div class="card">${S.templates.map((x, i) => `<div class="row sp" style="padding:4px 0"><span><span class="dot" style="background:${catColor(x.cat)};display:inline-block;margin-right:8px"></span>${esc(x.t)}</span>
       <button class="icon-btn" data-act="tplDel" data-i="${i}">×</button></div>`).join('') || '<div class="muted">Нет шаблонов</div>'}
       <div class="btns"><button class="btn sm" data-act="tplAdd">+ Новый шаблон</button></div></div>
-    <h2>Уведомления</h2><div class="card"><div class="row sp"><span>За 15 минут до урока</span><button class="chip ${st.notify ? 'on' : ''}" style="margin:0" data-act="notifTog">${st.notify ? 'Вкл' : 'Выкл'}</button></div>
-      <div class="muted" style="margin-top:6px">Работает, пока приложение открыто. Таймер фокуса сообщит о конце, даже если ты переключился на другое окно.</div></div>
+    <h2>Автосохранение на GitHub</h2><div class="card">
+      <div class="row sp"><span>Каждый вечер в 23:59</span><button class="chip ${sy.on ? 'on' : ''}" style="margin:0" data-act="syncTog">${sy.on ? 'Вкл' : 'Выкл'}</button></div>
+      <label class="l">Токен GitHub (fine-grained, только этот репозиторий, Contents: Read and write)</label><input type="password" autocomplete="off" value="${esc(sy.token)}" data-set="syncToken" placeholder="github_pat_...">
+      <label class="l">Репозиторий</label><input type="text" value="${esc(sy.repo)}" data-set="syncRepo">
+      <label class="l">Ветка для данных</label><input type="text" value="${esc(sy.branch)}" data-set="syncBranch">
+      <div class="muted" style="margin-top:8px">${sy.last ? 'Последнее сохранение: ' + esc(sy.last) : 'Ещё не сохранялось'}${sy.status ? ' · ' + esc(sy.status) : ''}</div>
+      <div class="muted" style="margin-top:6px">Браузер не умеет работать в фоне в точное время: сохранение случится в 23:59, если приложение открыто, а иначе при следующем открытии. Токен хранится только на этом устройстве. Если репозиторий публичный, данные будут видны всем.</div>
+      <div class="btns"><button class="btn" data-act="syncNow">Сохранить сейчас</button></div></div>
     <h2>Данные</h2><div class="card"><div class="muted" style="margin-bottom:10px">Данные хранятся только на этом устройстве. Делай копию время от времени.</div>
       <div class="btns" style="margin-top:0"><button class="btn" data-act="export">📥 Скачать копию</button><button class="btn" data-act="import">📤 Загрузить</button></div>
       <div class="btns"><button class="btn warn" data-act="wipe">Удалить все записи</button></div></div>
@@ -434,22 +439,8 @@ setInterval(() => {
       document.title = `${mmss(l)} · Время для важного`;
     }
   } else if (document.title !== 'Время для важного') document.title = 'Время для важного';
-  lessonReminder();
+  autoSync();
 }, 500);
-
-function lessonReminder() {
-  if (!S.settings.notify) return;
-  const now = new Date(), di = dow(now), l = S.settings.lessons[di];
-  const m = l && l.match(/^(\d{1,2}):(\d{2})/);
-  if (!m) return;
-  const diff = (+m[1] * 60 + +m[2]) - (now.getHours() * 60 + now.getMinutes());
-  const key = `${todayS()}`;
-  if (diff <= 15 && diff > 0 && S.fired[key] !== l) {
-    S.fired[key] = l; saveNow();
-    notify('Урок вьетнамского', `Через ${diff} мин — ${l}. Приготовься 🎓`);
-    toast(`Через ${diff} мин урок вьетнамского`);
-  }
-}
 
 /* ---------- действия ---------- */
 const A = {
@@ -512,6 +503,7 @@ const A = {
     const w = parseInt($('#pw').value, 10), b = parseInt($('#pb').value, 10);
     if (!(w > 0)) return toast('Укажи длину фокуса');
     S.settings.pomo = { work: w, brk: b >= 0 ? b : 0 };
+    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch (e) { /* ignore */ }
     timerStart(w, 'work');
   },
   timerPause: () => {
@@ -549,16 +541,14 @@ const A = {
     if (p >= 0) a.splice(p, 1); else a.push(i);
     saveNow(); render();
   },
-  notifTog: async () => {
-    if (S.settings.notify) { S.settings.notify = false; }
-    else {
-      try { const p = await Notification.requestPermission(); S.settings.notify = p === 'granted'; if (p !== 'granted') toast('Уведомления не разрешены в браузере'); }
-      catch (e) { toast('Уведомления не поддерживаются'); }
-    }
-    saveNow(); render();
+  syncTog: () => {
+    const sy = S.settings.sync;
+    if (!sy.on && !sy.token) return toast('Сначала вставь токен GitHub');
+    sy.on = !sy.on; saveNow(); render();
   },
+  syncNow: () => syncNow(true),
   export: () => {
-    const b = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
+    const b = new Blob([JSON.stringify(publicState(), null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(b); a.download = `time-app-${todayS()}.json`; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -585,6 +575,9 @@ document.addEventListener('change', e => {
   else if (k === 'dailyGoal') { if (n > 0) st.dailyGoal = n; }
   else if (k === 'pomoWork') { if (n > 0) st.pomo.work = n; }
   else if (k === 'pomoBrk') { if (n >= 0) st.pomo.brk = n; }
+  else if (k === 'syncToken') st.sync.token = el.value.trim();
+  else if (k === 'syncRepo') st.sync.repo = el.value.trim();
+  else if (k === 'syncBranch') st.sync.branch = el.value.trim() || 'data';
   else if (k === 'workoutTime' || k === 'workWindow') st[k] = el.value.trim();
   else if (k === 'lesson') { const v = el.value.trim(); if (v) st.lessons[el.dataset.i] = v; else delete st.lessons[el.dataset.i]; }
   else if (k === 'revWin' || k === 'revBlock') {
@@ -608,6 +601,60 @@ function importFile(el) {
   };
   r.readAsText(f);
 }
+
+
+/* ---------- автосохранение на GitHub ---------- */
+function publicState() {
+  const c = JSON.parse(JSON.stringify(S));
+  c.settings.sync.token = '';
+  c.timer = null;
+  return c;
+}
+const b64 = str => btoa(unescape(encodeURIComponent(str)));
+let syncing = false, lastTry = 0;
+
+async function syncNow(manual) {
+  const sy = S.settings.sync;
+  if (syncing) return;
+  if (!sy.token || !/^[\w.-]+\/[\w.-]+$/.test(sy.repo)) { if (manual) toast('Укажи токен и репозиторий'); return; }
+  syncing = true; lastTry = Date.now();
+  const api = p => fetch(`https://api.github.com/repos/${sy.repo}${p}`, { headers: { Authorization: `Bearer ${sy.token}`, Accept: 'application/vnd.github+json' } });
+  const send = (p, method, body) => fetch(`https://api.github.com/repos/${sy.repo}${p}`, { method, headers: { Authorization: `Bearer ${sy.token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  try {
+    const q = `/contents/${sy.path}?ref=${encodeURIComponent(sy.branch)}`;
+    let r = await api(q);
+    if (r.status === 404) { // нет файла или ветки — создаём ветку от основной
+      const rr = await api('/git/ref/heads/' + encodeURIComponent(sy.branch));
+      if (rr.status === 404) {
+        const def = (await (await api('')).json()).default_branch;
+        const base = await (await api('/git/ref/heads/' + def)).json();
+        const mk = await send('/git/refs', 'POST', { ref: 'refs/heads/' + sy.branch, sha: base.object.sha });
+        if (!mk.ok) throw new Error('ветка: ' + mk.status);
+      }
+    }
+    const sha = r.ok ? (await r.json()).sha : undefined;
+    const put = await send(`/contents/${sy.path}`, 'PUT', {
+      message: `Данные за ${todayS()}`, content: b64(JSON.stringify(publicState(), null, 2)), branch: sy.branch, ...(sha ? { sha } : {})
+    });
+    if (!put.ok) throw new Error(put.status === 401 || put.status === 403 ? 'нет доступа, проверь токен' : 'ошибка ' + put.status);
+    sy.last = `${todayS()} ${nowHM()}`; sy.status = 'ок'; sy.lastDay = todayS();
+    if (manual) toast('✓ Сохранено на GitHub');
+  } catch (e) {
+    sy.status = 'не вышло: ' + (e.message || 'сеть'); if (manual) toast('Не удалось сохранить: ' + (e.message || 'нет сети'));
+  }
+  syncing = false; saveNow();
+  if (ui.view === 'settings') render();
+}
+/* 23:59 при открытом приложении; иначе — догоняем при следующем открытии */
+function autoSync() {
+  const sy = S.settings.sync;
+  if (!sy.on || syncing || Date.now() - lastTry < 5 * 60000) return;
+  const d = new Date();
+  const due = (d.getHours() === 23 && d.getMinutes() === 59 && sy.last !== `${todayS()} 23:59`) ||
+    (sy.lastDay && sy.lastDay < todayS() && S.sessions.some(x => x.date > sy.lastDay));
+  if (due || (!sy.lastDay && S.sessions.length)) syncNow(false);
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') autoSync(); });
 
 /* ---------- старт ---------- */
 (function init() {
