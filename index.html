@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Время для важного</title>
+<meta name="theme-color" content="#14181c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Время">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <h1>Время для важного</h1>
+  <button class="icon-btn" data-act="nav" data-v="settings" aria-label="Настройки">⚙</button>
+</header>
+<main id="view"></main>
+<nav class="tabbar" id="tabbar">
+  <button data-act="nav" data-v="today"><i>🏠</i>Сегодня</button>
+  <button data-act="nav" data-v="focus"><i>⏱</i>Фокус</button>
+  <button data-act="nav" data-v="stats"><i>📊</i>Статистика</button>
+  <button data-act="nav" data-v="cal"><i>▦</i>Календарь</button>
+  <button data-act="nav" data-v="review"><i>✎</i>Обзор</button>
+</nav>
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-bg" data-act="closeSheet"></div>
+  <div class="sheet-body" id="sheet-body"></div>
+</div>
+<div id="toast" class="toast" hidden></div>
+<input type="file" id="importFile" accept="application/json" hidden>
+<script src="app.js"></script>
+</body>
+</html>
