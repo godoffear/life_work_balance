@@ -140,11 +140,14 @@ function toast(msg) {
   toast.t = setTimeout(() => { t.hidden = true; }, 2800);
 }
 
-function logSession({ cat, minutes, note = '', date, ev = '', title }) {
-  S.sessions.push({
+const DIST = ['Не отвлекался', 'Немного отвлёкся', 'Сильно отвлёкся'];
+function logSession({ cat, minutes, note = '', date, ev = '', title, dist }) {
+  const rec = {
     id: uid(), cat, minutes: Math.max(1, Math.round(minutes)), date: date || todayS(),
     time: nowHM(), note, ev, title: title || catName(cat)
-  });
+  };
+  if (dist !== undefined) rec.dist = dist;
+  S.sessions.push(rec);
   saveNow();
   toast(`✓ Плюс ${fmt(Math.round(minutes))} к «${catName(cat)}». Отдых равноправен`);
 }
@@ -270,6 +273,7 @@ function vFocus() {
     const m = T.elapsed;
     return `<div class="card"><div class="t" style="font-size:18px">Чем ты занимался эти ${m} мин?</div>
       <label class="l">Занятие</label>${catChips(T.cat, 'askCat')}
+      <label class="l">Отвлекался?</label>${DIST.map((n, i) => `<button class="chip ${(T.dist || 0) === i ? 'on' : ''}" data-act="askDist" data-i="${i}">${i ? '⚠ ' : '✓ '}${n}</button>`).join('')}
       <label class="l">Сколько минут (можно поправить)</label><input type="number" id="askMin" min="1" max="600" value="${m}">
       <label class="l">Заметка (необязательно)</label><input type="text" id="askNote" maxlength="200" placeholder="например, юнит-экономика">
       <div class="btns"><button class="btn pri" data-act="askSave">Записать</button><button class="btn warn" data-act="askDrop">Не записывать</button></div></div>`;
@@ -319,9 +323,16 @@ function vCal() {
     <div class="cal" style="margin-top:8px">${cells}</div>
     <div class="row sp" style="margin-top:16px"><h2 style="margin:0">${parse(ui.sel).getDate()} ${MONTHS_G[parse(ui.sel).getMonth()]}${dsum ? ' · ' + fmt(dsum) : ''}</h2><button class="btn sm" data-act="quickLog" data-d="${ui.sel}">+ Запись</button></div>
     ${day.length ? day.map(s => `<div class="card row" style="margin-top:8px"><span class="dot" style="background:${catColor(s.cat)}"></span>
-      <div class="grow"><div class="t">${catName(s.cat)} · ${fmt(s.minutes)}</div><div class="muted">${s.time}${s.note ? ' · ' + esc(s.note) : ''}</div></div>
+      <div class="grow"><div class="t">${catName(s.cat)} · ${fmt(s.minutes)}</div><div class="muted">${s.time}${s.dist ? ` · <span style="color:${s.dist === 2 ? 'var(--rd)' : 'var(--am)'}">⚠ ${DIST[s.dist].toLowerCase()}</span>` : ''}${s.note ? ' · ' + esc(s.note) : ''}</div></div>
       <button class="icon-btn" data-act="sessDel" data-id="${s.id}" aria-label="Удалить">×</button></div>`).join('') : '<div class="muted" style="margin-top:8px">В этот день записей нет.</div>'}
     <h2>Последние 16 недель</h2><div class="card"><div class="heat">${heat}</div></div>`;
+}
+
+function focusLine(list) {
+  const f = list.filter(x => x.dist !== undefined);
+  if (!f.length) return '';
+  const clean = f.filter(x => x.dist === 0).length, heavy = f.filter(x => x.dist === 2).length;
+  return `<div class="muted">Фокус без отвлечений: <b style="color:var(--tx)">${clean} из ${f.length}</b>${heavy ? ` · сильно отвлекался: ${heavy}` : ''}</div>`;
 }
 
 function vReview() {
@@ -341,7 +352,8 @@ function vReview() {
       <div class="muted">${p.total ? (diff >= 0 ? '+' : '−') + fmt(Math.abs(diff)) + ' к прошлой неделе' : 'пока нет данных за прошлую'}</div>
       <div style="margin-top:8px;color:${load[1]}">${load[0]}</div></div>
     ${w.total ? `<div class="card"><div class="muted">Лучший день: <b style="color:var(--tx)">${DAYS[dow(parse(best))]}</b> · ${fmt(byDay[best])}</div>
-      <div class="muted">Чаще всего: <b style="color:var(--tx)">${catName(topCat)}</b> · ${fmt(w.by[topCat])}</div></div>` : ''}
+      <div class="muted">Чаще всего: <b style="color:var(--tx)">${catName(topCat)}</b> · ${fmt(w.by[topCat])}</div>
+      ${focusLine(w.list)}</div>` : ''}
     <h2>Ориентиры</h2><div class="card">${goals.map(([c, v, g, u]) => `<div style="margin-bottom:12px"><div class="row sp"><span>${catName(c)}</span><span class="muted">${v} / ${g} ${u}${v >= g ? ' ✓' : ''}</span></div>
       <div class="bar"><i style="width:${Math.min(100, g ? v / g * 100 : 0)}%;background:${catColor(c)}"></i></div></div>`).join('')}
       <div class="muted">${w.total ? 'Не дотянул до нормы — ничего страшного, качество важнее количества.' : 'Неделя пока пустая. Новый день — новая возможность.'}</div></div>
@@ -539,9 +551,10 @@ const A = {
     saveNow(); render();
   },
   askCat: d => { S.timer.cat = d.c; document.querySelectorAll('[data-act=askCat]').forEach(b => b.classList.toggle('on', b.dataset.c === d.c)); },
+  askDist: d => { S.timer.dist = +d.i; document.querySelectorAll('[data-act=askDist]').forEach(b => b.classList.toggle('on', +b.dataset.i === +d.i)); },
   askSave: () => {
     const T = S.timer, m = parseInt($('#askMin').value, 10); if (!(m > 0)) return;
-    logSession({ cat: T.cat, minutes: m, note: $('#askNote').value.trim() });
+    logSession({ cat: T.cat, minutes: m, note: $('#askNote').value.trim(), dist: T.dist || 0 });
     ui.cat = T.cat;
     S.timer = { saved: true, minutes: m, cat: T.cat }; saveNow(); render();
   },
